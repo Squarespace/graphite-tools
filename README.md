@@ -3,11 +3,11 @@ graphite-tools
 
 Tools for the Graphite project
 
-#Check Graphite
+##Check Graphite
 
 Once many of the application and system level metrics are stored in Graphite, it becomes useful to set up alarms on those metrics. For example, if the CPU usage percentage is above 85% at a particular host, we might want to be proactive and take action before something bad happens. Similarly, if the total number of requests drops considerably, we should also take action. There are a couple of steps involved in order to set all of this up. This page describes a script that queries Graphite for a specific metric and determines whether or not the metric's value is breaching a threshold. This script can then be hooked up to Nagios to take any corresponding action (i.e. send email, publish HipChat message, page someone).
 
-##Script & Syntax
+###Script & Syntax
 
 The check_graphite script accepts the following options:
 
@@ -41,26 +41,28 @@ As an example, we could query for the following (in verbose mode):
 	Processed 10 datapoints - OK: 0, WARNING: 10, CRITICAL: 10
 	CRITICAL 10 breaches out of 10 datapoints
 
-#What does it do?
+###What does it do?
 
--u http://graphite-installation
+u: http://graphite-installation
 - The URL of the Graphite installation
--m "aliasByNode(PRODUCTION.all.requests.m1_rate,2,3)" 
+m: "aliasByNode(PRODUCTION.all.requests.m1_rate,2,3)" 
 - The name of the metric. It can include any of the functions supported by Graphite (i.e. scale(), aliasByNode())
--t 10 
+t: 10 
 - How frequently values are published for this metric. For example, every 10s, 60s, etc.
--p 10 
+p: 10 
 - How many datapoints should be checked. For example, if -t is set to 10 and -p is set to 10, the script would check the past 100 seconds to get 10 datapoints.
--a 3 
+a: 3 
 - If we are checking for 10 datapoints and a is set to 3, the script will alarm if at least 3 of the datapoints breach the warning or critical thresholds.
--w 835 
+w: 835 
 - The warning threshold value - the metric value is compared against this value.
--c 850 
+c: 850 
 - The critical threshold value - the metric value is compared against this value.
--v
+v:
 - Specify this flag if you want to see the actual values that Graphite returned and the internal computations of the script.
+s:
+- How many datapoints should be skipped.
 
-#Skipping Datapoints
+###Skipping Datapoints
 
 Some graphs might have metric lags due to the Graphite server being overloaded. In the check_graphite script there is an option to skip the lags because we don't want to alarm on them. For example, the following command specifies that we should check the requests metric. It is published every 10 seconds (-t), we want to check the latest 10 datapoints (-p), alarm only if 3 or more (-a) datapoints breach the thresholds (-w, -c) and skip the last 30 datapoints (-s) because there is a lag. The script does the math internally to skip the lag and produces the correct interval: from=-400s&until=300s.
 
