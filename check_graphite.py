@@ -76,6 +76,10 @@ def make_request(args, fromTime, untilTime):
 
 
 def parse_data(data, warning, critical, unknown):
+
+    if len(data) == 0:
+        exit_unknown("No data in response")
+
     status = ""
     results = {}
     latestValue = 0.0
@@ -83,8 +87,8 @@ def parse_data(data, warning, critical, unknown):
     for metric in data:
         count = okPoints = warningPoints = criticalPoints = latestValue = 0
         status = ""
-        node = metric['target'].split('.')[2].encode('utf-8')
-        if node == "*":
+        node = args.metric.split('.')[2].encode('utf-8')
+        if "*" in node:
             node = "all"
         verbose("node", node)
 
@@ -169,57 +173,37 @@ def parse_data(data, warning, critical, unknown):
 
 
 def exit_nagios(results, args):
-    is_many = True if len(results) > 2 else False
+    is_many = len(results) > 2
 
     node_list = results['total']['nodes']
-    if results['total']['critical'] >= args.nodes:
-        if is_many:
-            msg = "CRITICAL: {0} WARNING: {1} OK: {2} UNKNOWN: {3} | {4}" \
-                .format(results['total']['critical'], results['total']['warning'],
-                        results['total']['ok'], results['total']['unknown'], node_list)
-            exit_critical(msg)
-        else:
-            msg = "latest = {0} vs {1} threshold - {2}/{3} breaches" .format(
-                results['total']['latest'],
-                args.critical,
-                results['all']['breaches']['critical'],
-                args.datapoints)
-            exit_critical(msg)
-    elif (results['total']['warning'] + results['total']['critical']) >= args.nodes:
-        if is_many:
-            msg = "CRITICAL: {0} WARNING: {1} OK: {2} UNKNOWN: {3} | {4}" \
-                .format(results['total']['critical'], results['total']['warning'],
-                        results['total']['ok'], results['total']['unknown'], node_list)
-            exit_warning(msg)
-        else:
-            msg = "latest = {0} vs {1} threshold - {2}/{3} breaches" .format(
-                results['total']['latest'],
-                args.critical,
-                results['all']['breaches']['critical'],
-                args.datapoints)
-            exit_warning(msg)
-    elif results['total']['unknown'] > results['total']['ok']:
-        if is_many:
-            msg = "CRITICAL: {0} WARNING: {1} OK: {2} UNKNOWN: {3} | {4}" \
-                .format(results['total']['critical'], results['total']['warning'],
-                        results['total']['ok'], results['total']['unknown'], node_list)
-            exit_unknown(msg)
-        else:
-            msg = "not all datapoints were returned"
-            exit_unknown(msg)
+    msg = ""
+    if is_many:
+        msg = "CRITICAL: {0} WARNING: {1} OK: {2} UNKNOWN: {3} | {4}" \
+            .format(results['total']['critical'], results['total']['warning'],
+                    results['total']['ok'], results['total']['unknown'], node_list)
     else:
-        if is_many:
-            msg = "CRITICAL: {0} WARNING: {1} OK: {2} UNKNOWN: {3} | {4}" \
-                .format(results['total']['critical'], results['total']['warning'],
-                        results['total']['ok'], results['total']['unknown'], node_list)
-            exit_ok(msg)
-        else:
+        msg = "latest = {0} vs {1} threshold - {2}/{3} breaches" .format(
+            results['total']['latest'],
+            args.critical,
+            results['all']['breaches']['critical'],
+            args.datapoints)
+
+    if results['total']['critical'] >= args.nodes:
+        exit_critical(msg)
+    elif (results['total']['warning'] + results['total']['critical']) >= args.nodes:
+        exit_warning(msg)
+    elif results['total']['unknown'] > results['total']['ok']:
+        if not is_many:
+            msg = "not all datapoints were returned"
+        exit_unknown(msg)
+    else:
+        if not is_many:
             msg = "latest = {0} vs {1} threshold - {2}/{3} breaches" .format(
                 results['total']['latest'],
                 args.critical,
                 results['all']['breaches']['warning'],
                 args.datapoints)
-            exit_ok(msg)
+        exit_ok(msg)
 
 
 parser = argparse.ArgumentParser(
