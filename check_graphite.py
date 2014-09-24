@@ -111,7 +111,7 @@ def parse_data(data, warning, critical, unknown):
                             criticalPoints += 1
                     else:
                         okPoints += 1
-            latestValue = datum
+                latestValue = datum
 
         count = criticalPoints + warningPoints + okPoints
         msg = "{0} - TOTAL {1}, CRITICAL {2}, WARNING {3}, OK {4}" \
