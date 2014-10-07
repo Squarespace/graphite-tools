@@ -94,7 +94,10 @@ class Metric:
 
     def last_value(self):
         datum = self.datum_only()
-        return datum[len(datum)-1]
+        index = len(datum) - 1
+        while((datum[index] == None) and (index > 0)):
+            index -= 1
+        return datum[index]
 
 def make_request(args, fromTime, untilTime):
     url = "{0}/render" .format(args.url)
@@ -154,12 +157,13 @@ def exit_w_status(metrics):
                 args.datapoints)
             break
             
+        node_info = "{0}: {1}" .format(datum_status['HOSTNAME'], metric.datum_only()[0])
         if overall_status == "critical":
             critical_count += 1
-            critical_nodes.append(datum_status['HOSTNAME'])
+            critical_nodes.append(node_info)
         elif overall_status == "warning":
             warning_count += 1
-            warning_nodes.append(datum_status['HOSTNAME'])
+            warning_nodes.append(node_info)
         elif overall_status == "unknown":
             unknown_count += 1
         else:
@@ -210,7 +214,6 @@ parser.add_argument(
     help="Warning threshold (float)",
     required=True,
     type=float
-
 )
 parser.add_argument(
     "-c", "--critical",
