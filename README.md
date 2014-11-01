@@ -21,6 +21,7 @@ The check_graphite script accepts the following options:
       -a, --alarmThreshold THRESHOLD   Number of breaching datapoints before alarming (default: 3)
       -w, --warning VALUE              Warning threshold
       -c, --critical VALUE             Critical threshold
+      -n, --nodes NODES                Numbers of nodes in warning and/or critical state must be >= this setting. Does not apply to graphs with a single metric/node (default: 1)
       -v, --verbose                    Enable debug logging
       -h, --help                       Display this screen
 

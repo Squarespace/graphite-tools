@@ -7,7 +7,6 @@ import json
 
 VERBOSE = False
 
-
 def exit_ok(msg):
     print "[OK] {0}" .format(msg)
     sys.exit(0)
@@ -39,6 +38,66 @@ def format_time(interval, datapoints, skip):
     untilTime = "-{0}s" .format(str(interval * skip))
     return fromTime, untilTime
 
+def get_overall_status(metric_status, threshold):
+    if (metric_status['COUNT']) < args.datapoints:
+        return "unknown"
+    elif (metric_status['CRITICAL']) >= threshold:
+        return "critical"
+    elif (metric_status['WARNING']) >= threshold:
+        return "warning"
+    else:
+        return "ok"
+
+class Metric:
+    target = ""
+    datapoints = []
+
+    def __init__(self, metric):
+        self.target = metric['target']
+        self.datapoints = metric['datapoints']
+
+    def datum_only(self):
+        datum = []
+        for datapoint in self.datapoints:
+            datum.append(datapoint[0])
+        return datum
+    
+    def datum_status(self,warning_threshold, critical_threshold):
+        datum_status = { 
+                'OK': 0, 'WARNING': 0, 'CRITICAL': 0, 'COUNT': 0,
+                'HOSTNAME': self.target}
+        if '.' in self.target:
+            datum_status['HOSTNAME'] = self.target.split('.')[2].encode('utf-8')
+        count = 0
+        for datapoint in self.datum_only():
+            if critical_threshold > warning_threshold:
+                if datapoint >= warning_threshold:
+                    datum_status['WARNING'] += 1
+                    if datapoint >= critical_threshold:
+                        datum_status['CRITICAL'] += 1
+                else:
+                    datum_status['OK'] += 1
+            else:
+                if datapoint <= warning_threshold:
+                    datum_status['WARNING'] += 1
+                    if datapoint <= critical_threshold:
+                        datum_status['CRITICAL'] += 1
+                else:
+                    datum_status['OK'] += 1
+            count += 1
+        datum_status['COUNT'] = count
+        msg = "{0} - TOTAL {1}, CRITICAL {2}, WARNING {3}, OK {4}" \
+            .format(datum_status['HOSTNAME'], count, datum_status['CRITICAL'], \
+            datum_status['WARNING'], datum_status['OK'])
+        verbose("count by target", msg)
+        return datum_status
+
+    def last_value(self):
+        datum = self.datum_only()
+        index = len(datum) - 1
+        while((datum[index] == None) and (index > 0)):
+            index -= 1
+        return datum[index]
 
 def make_request(args, fromTime, untilTime):
     url = "{0}/render" .format(args.url)
@@ -74,137 +133,65 @@ def make_request(args, fromTime, untilTime):
         msg = "Invalid type returned from {0}: {1}" .format(args.url, data)
         exit_unknown(msg)
 
-
-def parse_data(data, warning, critical, unknown):
-
-    if len(data) == 0:
-        exit_unknown("No data in response")
-
-    status = ""
-    results = {}
-    latestValue = 0.0
-
+def load_metrics(data):
+    metrics = []
     for metric in data:
-        count = okPoints = warningPoints = criticalPoints = latestValue = 0
-        status = ""
-        node = args.metric.split('.')[2].encode('utf-8')
-        if "*" in node:
-            node = "all"
-        verbose("node", node)
+        metrics.append(Metric(metric))
+    return metrics
 
-        for point in metric['datapoints']:
-            datum = point[0]
-            if datum is not None:
-                # upper bound thresholds
-                if args.critical > args.warning:
-                    if datum >= args.warning:
-                        warningPoints += 1
-                        if datum >= args.critical:
-                            criticalPoints += 1
-                    else:
-                        okPoints += 1
-                else:
-                # lower bound thresholds
-                    if datum <= args.warning:
-                        warningPoints += 1
-                        if datum <= args.critical:
-                            criticalPoints += 1
-                    else:
-                        okPoints += 1
-                latestValue = datum
+def exit_w_status(metrics):
+    warning_count = critical_count = ok_count = unknown_count = nodes = 0
+    critical_nodes = []
+    warning_nodes = []
 
-        count = criticalPoints + warningPoints + okPoints
-        msg = "{0} - TOTAL {1}, CRITICAL {2}, WARNING {3}, OK {4}" \
-            .format(node, count, criticalPoints, warningPoints, okPoints)
-        verbose("count", msg)
+    for metric in metrics:
+        datum_status = metric.datum_status(args.warning, args.critical)
+        overall_status = get_overall_status(datum_status, args.threshold)
 
-        if criticalPoints >= args.threshold:
-            status = "critical"
-        elif warningPoints >= args.threshold:
-            status = "warning"
-        elif (count < args.datapoints):
-            status = "unknown"
-        else:
-            status = "ok"
-
-        node_results = {
-            "status": status,
-            "breaches": {
-                "warning": warningPoints,
-                "critical": criticalPoints
-            },
-            "latest": latestValue
-        }
-        results[node] = node_results
-
-    critical_count = 0
-    warning_count = 0
-    ok_count = 0
-    unknown_count = 0
-    nodes = []
-
-    for node, result in results.iteritems():
-        if result['status'] == "critical":
+        if (len(metrics) == 1):
+            breach_count = datum_status['CRITICAL'] if overall_status == "critical" else datum_status['WARNING']
+            msg = "latest = {0} vs {1} threshold - {2}/{3} breaches" .format(
+                metrics[0].last_value(),
+                args.critical,
+                breach_count,
+                args.datapoints)
+            break
+            
+        node_info = "{0}: {1}" .format(datum_status['HOSTNAME'], metric.datum_only()[0])
+        if overall_status == "critical":
             critical_count += 1
-            append = ["CRITICAL", node, result['latest']]
-            nodes.append(append)
-        elif result['status'] == "warning":
+            critical_nodes.append(node_info)
+        elif overall_status == "warning":
             warning_count += 1
-            append = ["WARNING", node, result['latest']]
-            nodes.append(append)
-        elif result['status'] == "unknown" and unknown:
+            warning_nodes.append(node_info)
+        elif overall_status == "unknown":
             unknown_count += 1
-            append = ["UNKNOWN", node, result['latest']]
-            nodes.append(append)
         else:
             ok_count += 1
+    
+    if(len(metrics) > 1):
+        node_list = []
+        if len(critical_nodes) + len(warning_nodes) > 0:
+            node_list.append('| ')
+        if len(critical_nodes) > 0:
+            node_list.append('critical: {0} ' .format(', '.join(critical_nodes)))
+        if len(warning_nodes) > 0:
+            node_list.append('warning: {0}' .format(', '.join(warning_nodes)))
+        node_string = ''.join(node_list)
+        msg = 'CRITICAL: {0} WARNING: {1} OK: {2} UNKNOWN: {3} {4}' \
+            .format(critical_count, warning_count, ok_count, unknown_count, node_string)
+    elif(len(metrics) == 0):
+        exit_unknown("No data in response")
 
-    total_results = {
-        "warning": warning_count,
-        "critical": critical_count,
-        "ok": ok_count,
-        "unknown": unknown_count,
-        "nodes": nodes,
-        "latest": latestValue
-    }
-    results['total'] = total_results
-    verbose("results", results)
-    return results
-
-
-def exit_nagios(results, args):
-    is_many = len(results) > 2
-
-    node_list = results['total']['nodes']
-    msg = ""
-    if is_many:
-        msg = "CRITICAL: {0} WARNING: {1} OK: {2} UNKNOWN: {3} | {4}" \
-            .format(results['total']['critical'], results['total']['warning'],
-                    results['total']['ok'], results['total']['unknown'], node_list)
-    else:
-        msg = "latest = {0} vs {1} threshold - {2}/{3} breaches" .format(
-            results['total']['latest'],
-            args.critical,
-            results['all']['breaches']['critical'],
-            args.datapoints)
-
-    if results['total']['critical'] >= args.nodes:
+    
+    if critical_count >= args.nodes:
         exit_critical(msg)
-    elif (results['total']['warning'] + results['total']['critical']) >= args.nodes:
+    elif (critical_count + warning_count) > args.nodes:
         exit_warning(msg)
-    elif results['total']['unknown'] > results['total']['ok']:
-        if not is_many:
-            msg = "not all datapoints were returned"
+    elif unknown_count > ok_count:
         exit_unknown(msg)
     else:
-        if not is_many:
-            msg = "latest = {0} vs {1} threshold - {2}/{3} breaches" .format(
-                results['total']['latest'],
-                args.critical,
-                results['all']['breaches']['warning'],
-                args.datapoints)
         exit_ok(msg)
-
 
 parser = argparse.ArgumentParser(
     prog='check_graphite',
@@ -227,7 +214,6 @@ parser.add_argument(
     help="Warning threshold (float)",
     required=True,
     type=float
-
 )
 parser.add_argument(
     "-c", "--critical",
@@ -293,9 +279,9 @@ if args.critical == args.warning:
 
 fromTime, untilTime = format_time(args.interval, args.datapoints, args.skip)
 data = make_request(args, fromTime, untilTime)
-total_metrics = len(data)
-verbose("total metrics", total_metrics)
 
-results = parse_data(data, args.warning, args.critical, args.unknown)
-exit_nagios(results, args)
+metrics = load_metrics(data)
+num_metrics = len(metrics)
+verbose("total metrics", num_metrics)
 
+exit_w_status(metrics)
