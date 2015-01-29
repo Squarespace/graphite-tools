@@ -105,7 +105,8 @@ def make_request(args, fromTime, untilTime):
         "target": args.metric,
         "format": "json",
         "from": fromTime,
-        "until": untilTime
+        "until": untilTime,
+        "noCache": True,
     }
     try:
         r = requests.get(url, params=params, timeout=args.timeout)
