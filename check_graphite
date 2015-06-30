@@ -6,6 +6,7 @@ import requests
 import json
 
 VERBOSE = False
+DISCARD_NULLS = True
 
 def exit_ok(msg):
     print "[OK] {0}" .format(msg)
@@ -30,7 +31,7 @@ def exit_unknown(msg):
 def verbose(title, msg):
     global VERBOSE
     if VERBOSE:
-        print("check_graphite [{0}]: {1}") .format(title, msg)
+        print("check_graphite [{0}]: {1}").format(title, msg)
 
 
 def format_time(interval, datapoints, skip):
@@ -61,29 +62,30 @@ class Metric:
         for datapoint in self.datapoints:
             datum.append(datapoint[0])
         return datum
-    
+
     def datum_status(self,warning_threshold, critical_threshold):
-        datum_status = { 
+        datum_status = {
                 'OK': 0, 'WARNING': 0, 'CRITICAL': 0, 'COUNT': 0,
                 'HOSTNAME': self.target}
         if '.' in self.target:
             datum_status['HOSTNAME'] = self.target.split('.')[2].encode('utf-8')
         count = 0
         for datapoint in self.datum_only():
-            if critical_threshold > warning_threshold:
-                if datapoint >= warning_threshold:
-                    datum_status['WARNING'] += 1
-                    if datapoint >= critical_threshold:
-                        datum_status['CRITICAL'] += 1
+            if (DISCARD_NULLS and (datapoint is not None)):
+                if critical_threshold > warning_threshold:
+                    if datapoint >= warning_threshold:
+                        datum_status['WARNING'] += 1
+                        if datapoint >= critical_threshold:
+                            datum_status['CRITICAL'] += 1
+                    else:
+                        datum_status['OK'] += 1
                 else:
-                    datum_status['OK'] += 1
-            else:
-                if datapoint <= warning_threshold:
-                    datum_status['WARNING'] += 1
-                    if datapoint <= critical_threshold:
-                        datum_status['CRITICAL'] += 1
-                else:
-                    datum_status['OK'] += 1
+                    if datapoint <= warning_threshold:
+                        datum_status['WARNING'] += 1
+                        if datapoint <= critical_threshold:
+                            datum_status['CRITICAL'] += 1
+                    else:
+                        datum_status['OK'] += 1
             count += 1
         datum_status['COUNT'] = count
         msg = "{0} - TOTAL {1}, CRITICAL {2}, WARNING {3}, OK {4}" \
@@ -110,11 +112,12 @@ def make_request(args, fromTime, untilTime):
     }
     try:
         r = requests.get(url, params=params, timeout=args.timeout)
+        verbose("url", r.url)
         r.raise_for_status()
     except requests.Timeout:
         msg = "Connection to {0} timed out after {1} seconds" .format(args.url, args.timeout)
         exit_unknown(msg)
-    except requests.ConnectionError, e:
+    except requests.ConnectionError as e:
         msg = "Unable to connect to {0}: {1}" .format(args.url, e)
         exit_unknown(msg)
     except requests.HTTPError:
@@ -128,7 +131,7 @@ def make_request(args, fromTime, untilTime):
         exit_unknown(msg)
 
     if isinstance(data, list):
-        verbose("url", r.url), verbose("data", r.text)
+        verbose("data", r.text)
         return data
     else:
         msg = "Invalid type returned from {0}: {1}" .format(args.url, data)
@@ -156,8 +159,13 @@ def exit_w_status(metrics):
                 args.critical,
                 breach_count,
                 args.datapoints)
-            break
-            
+            if datum_status['CRITICAL'] >= args.threshold:
+                exit_critical(msg)
+            elif datum_status['WARNING'] >= args.threshold:
+                exit_warning(msg)
+            else:
+                exit_ok(msg)
+
         node_info = "{0}: {1}" .format(datum_status['HOSTNAME'], metric.datum_only()[0])
         if overall_status == "critical":
             critical_count += 1
@@ -169,7 +177,7 @@ def exit_w_status(metrics):
             unknown_count += 1
         else:
             ok_count += 1
-    
+
     if(len(metrics) > 1):
         node_list = []
         if len(critical_nodes) + len(warning_nodes) > 0:
@@ -184,13 +192,10 @@ def exit_w_status(metrics):
     elif(len(metrics) == 0):
         exit_unknown("No data in response")
 
-    
     if critical_count >= args.nodes:
         exit_critical(msg)
     elif (critical_count + warning_count) > args.nodes:
         exit_warning(msg)
-    elif unknown_count > ok_count:
-        exit_unknown(msg)
     else:
         exit_ok(msg)
 
@@ -262,7 +267,7 @@ parser.add_argument(
 parser.add_argument(
     "--timeout",
     help="Number of seconds to wait before giving up on graphite API (default: 5) (int)",
-    default=5,
+    default=10,
     type=int
 )
 parser.add_argument(
